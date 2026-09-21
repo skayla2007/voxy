@@ -30,7 +30,9 @@ import static org.lwjgl.vulkan.VK10.*;
 // and request readback are identical to the GL implementation.
 public class VkTraversal {
     public static final int MAX_REQUEST_QUEUE_SIZE = HierarchicalOcclusionTraverser.MAX_REQUEST_QUEUE_SIZE;
-    public static final int MAX_QUEUE_SIZE = HierarchicalOcclusionTraverser.MAX_QUEUE_SIZE;
+    // A 2K/4K terrain-heavy view can refine well beyond the original 200k
+    // scratch entries. Match the resident-section ceiling on the Vulkan path.
+    public static final int MAX_QUEUE_SIZE = 1 << 20;
     private static final int MAX_ITERATIONS = WorldEngine.MAX_LOD_LAYER + 1;
     //Traversal workgroup size: 64 threads (2 subgroups on 32-wide devices, 1 on
     // 64-wide AMD) improves HiZ texture cache locality and amortises dispatch

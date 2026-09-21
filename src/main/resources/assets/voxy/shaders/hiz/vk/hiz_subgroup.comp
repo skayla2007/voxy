@@ -91,12 +91,20 @@ void main() {
     // then 16 (16x16 -> 1) produce mip_3 and mip_4.
     subgroupBarrier();
 
+    #ifdef USE_REVERSE_Z
+    float reduced = subgroupClusteredMin(value, 4);
+    #else
     float reduced = subgroupClusteredMax(value, 4);
+    #endif
     if ((gl_SubgroupInvocationID & 0x3) == 0) {
         imageStore(mip_3, wavePos >> 1, vec4(reduced));
     }
     subgroupBarrier();
+    #ifdef USE_REVERSE_Z
+    reduced = subgroupClusteredMin(value, 16);
+    #else
     reduced = subgroupClusteredMax(value, 16);
+    #endif
     if ((gl_SubgroupInvocationID & 0xF) == 0) {
         imageStore(mip_4, wavePos >> 2, vec4(reduced));
     }
@@ -114,7 +122,11 @@ void main() {
     value = REDUCTION(REDUCTION(values[i], values[i + 1]), REDUCTION(values[i + 2], values[i + 3]));
     imageStore(mip_5, ivec2(gl_WorkGroupID.xy) * 2 + ivec2(gl_LocalInvocationID.x & 1u, gl_LocalInvocationID.x >> 1), vec4(value));
     subgroupBarrier();
+    #ifdef USE_REVERSE_Z
+    value = subgroupMin(value);
+    #else
     value = subgroupMax(value);
+    #endif
     if (gl_LocalInvocationID.x == 0) {
         imageStore(mip_6, ivec2(gl_WorkGroupID.xy), vec4(value));
     }

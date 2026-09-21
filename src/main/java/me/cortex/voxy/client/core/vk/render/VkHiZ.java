@@ -59,8 +59,9 @@ public class VkHiZ {
 
     private void alloc(int width, int height) {
         if (this.pyramid != null) this.pyramid.free();
-        this.levels = (int) Math.ceil(Math.log(Math.max(width, height)) / Math.log(2));
-        this.levels = Math.max(this.levels, 1);
+        // width/height are powers of two. Include both the base and the final
+        // 1x1 level (e.g. 2048 needs mip levels 0..11, i.e. 12 levels).
+        this.levels = 32 - Integer.numberOfLeadingZeros(Math.max(width, height));
         this.pyramid = new VkImage2D(this.ctx, width, height, this.levels, VK_FORMAT_R32_SFLOAT,
                 VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, VK_IMAGE_ASPECT_COLOR_BIT, true);
         this.width = width;
@@ -138,10 +139,14 @@ public class VkHiZ {
                     VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT);
             subgroupEndLevel = 6;
             //Advance cw/ch past the subgroup-covered levels for any remaining per-level loop.
-            cw = Math.max(this.width >> 6, 1);
-            ch = Math.max(this.height >> 6, 1);
-            sw = Math.max(this.width >> 5, 1);
-            sh = Math.max(this.height >> 5, 1);
+            // mip_6 was the last level written by the subgroup pass. The
+            // per-level loop starts at mip_7, so its first destination is
+            // base>>7 and its source is base>>6. The old >>6/>>5 values wrote
+            // a 2x oversized rectangle into every remaining mip image.
+            cw = Math.max(this.width >> 7, 1);
+            ch = Math.max(this.height >> 7, 1);
+            sw = Math.max(this.width >> 6, 1);
+            sh = Math.max(this.height >> 6, 1);
         }
 
         //Remaining levels (7+): per-level reduce loop.

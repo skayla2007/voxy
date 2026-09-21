@@ -26,23 +26,36 @@ uint getCurrentNode() {
 }
 
 
-//TODO: limit the size/writing out of bounds
 uint nodePushIndex = -1;
-void pushNodesInit(uint nodeCount) {
+bool pushNodesInit(uint nodeCount) {
     //Debug
     #ifdef DEBUG
     if (queueIdx >= (MAX_ITERATIONS-1)) {
         printf("LOG: Traversal tried inserting a node into next iteration, which is outside max iteration bounds. GID: %d, count: %d", gl_GlobalInvocationID.x, nodeCount);
         nodePushIndex = -1;
-        return;
+        return false;
     }
     #endif
 
-    uint index = atomicAdd(nodeQueueMetadata[queueIdx+1].w, nodeCount);
+    // Reserve the whole child run without ever letting the GPU write beyond
+    // the real scratch-buffer capacity. High-resolution terrain-heavy views
+    // can otherwise overflow this queue and lose/corrupt arbitrary LOD tiles.
+    uint capacity = uint(nodeQueueSink.length());
+    uint index = atomicAdd(nodeQueueMetadata[queueIdx+1].w, 0);
+    for (;;) {
+        if (index > capacity || nodeCount > capacity-index) {
+            nodePushIndex = -1;
+            return false;
+        }
+        uint previous = atomicCompSwap(nodeQueueMetadata[queueIdx+1].w, index, index+nodeCount);
+        if (previous == index) break;
+        index = previous;
+    }
     //Increment first metadata value if it changes threash hold
     uint inc = ((index+LOCAL_SIZE)>>LOCAL_SIZE_BITS)-(index>>LOCAL_SIZE_BITS);
     atomicAdd(nodeQueueMetadata[queueIdx+1].x, inc);//TODO: see if making this conditional on inc != 0 is faster
     nodePushIndex = index;
+    return true;
 }
 
 void pushNode(uint nodeId) {

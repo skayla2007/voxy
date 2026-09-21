@@ -14,9 +14,9 @@ import static org.lwjgl.vulkan.VK10.*;
 // offscreen render targets (colour + D32S8 depth-stencil), the depth-bound
 // image (vanilla-coverage optimisation), and the HiZ pyramid.
 public class VkViewport extends Viewport<VkViewport> {
-    public static final int OPAQUE_DRAW_COUNT = 400_000;
-    public static final int TRANSLUCENT_DRAW_COUNT = 100_000;
-    public static final int TEMPORAL_DRAW_COUNT = 100_000;
+    public static final int OPAQUE_DRAW_COUNT = 2_000_000;
+    public static final int TRANSLUCENT_DRAW_COUNT = 262_144;
+    public static final int TEMPORAL_DRAW_COUNT = 1_000_000;
 
     private final VkFrameCtx ctx;
 
@@ -43,8 +43,8 @@ public class VkViewport extends Viewport<VkViewport> {
         this.ctx = ctx;
         this.drawCountCallBuffer = new VkBuffer(ctx, 1024).zero();
         this.drawCallBuffer = new VkBuffer(ctx, 5L * 4 * (OPAQUE_DRAW_COUNT + TRANSLUCENT_DRAW_COUNT + TEMPORAL_DRAW_COUNT)).zero();
-        this.positionScratchBuffer = new VkBuffer(ctx, 8L * 400000).zero();
-        this.indirectLookupBuffer = new VkBuffer(ctx, HierarchicalOcclusionTraverser.MAX_QUEUE_SIZE * 4L + 4).zero();
+        this.positionScratchBuffer = new VkBuffer(ctx, 8L * VkTraversal.MAX_QUEUE_SIZE).zero();
+        this.indirectLookupBuffer = new VkBuffer(ctx, VkTraversal.MAX_QUEUE_SIZE * 4L + 4).zero();
         this.visibilityBuffer = new VkBuffer(ctx, maxSectionCount * 4L).zero();
         this.hiZ = new VkHiZ(ctx, properties);
         ctx.flushImmediate();

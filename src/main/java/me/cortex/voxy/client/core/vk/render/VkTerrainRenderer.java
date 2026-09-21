@@ -104,6 +104,9 @@ public class VkTerrainRenderer {
                 VkShaderSource.load("voxy:lod/gl46/cmdgen.comp", VkShaderSource.defs()
                         .def("TRANSLUCENT_WRITE_BASE", 1024)
                         .def("TEMPORAL_OFFSET", TEMPORAL_OFFSET)
+                        .def("OPAQUE_DRAW_CAPACITY", VkViewport.OPAQUE_DRAW_COUNT)
+                        .def("TRANSLUCENT_DRAW_CAPACITY", VkViewport.TRANSLUCENT_DRAW_COUNT)
+                        .def("TEMPORAL_DRAW_CAPACITY", VkViewport.TEMPORAL_DRAW_COUNT)
                         .def("TRANSLUCENT_DISTANCE_BUFFER_BINDING", 7)
                         .build()),
                 0, List.of(VkShaderPipeline.ubo(0), VkShaderPipeline.ssbo(1), VkShaderPipeline.ssbo(2),

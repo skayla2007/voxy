@@ -48,6 +48,38 @@ void writeCmd(uint idx, uint instance, uint offset, uint quadCount) {
     cmdBuffer[idx] = cmd;
 }
 
+#ifdef VOXY_VULKAN
+uint reserveOpaqueDraws(uint count) {
+    uint index = atomicAdd(opaqueDrawCount, 0);
+    for (;;) {
+        if (index > OPAQUE_DRAW_CAPACITY || count > OPAQUE_DRAW_CAPACITY-index) return uint(-1);
+        uint previous = atomicCompSwap(opaqueDrawCount, index, index+count);
+        if (previous == index) return index;
+        index = previous;
+    }
+}
+
+uint reserveTemporalDraws(uint count) {
+    uint index = atomicAdd(temporalOpaqueDrawCount, 0);
+    for (;;) {
+        if (index > TEMPORAL_DRAW_CAPACITY || count > TEMPORAL_DRAW_CAPACITY-index) return uint(-1);
+        uint previous = atomicCompSwap(temporalOpaqueDrawCount, index, index+count);
+        if (previous == index) return index;
+        index = previous;
+    }
+}
+
+uint reserveTranslucentDraw() {
+    uint index = atomicAdd(translucentDrawCount, 0);
+    for (;;) {
+        if (index >= TRANSLUCENT_DRAW_CAPACITY) return uint(-1);
+        uint previous = atomicCompSwap(translucentDrawCount, index, index+1);
+        if (previous == index) return index;
+        index = previous;
+    }
+}
+#endif
+
 void main() {
     if (gl_GlobalInvocationID.x >= sectionCount) {
         return;
@@ -94,11 +126,25 @@ void main() {
 
 
         uint cmdCnt = bitCount(msk);
+        #ifdef VOXY_VULKAN
+        uint cmdPtr = reserveOpaqueDraws(cmdCnt);
+        if (cmdPtr == uint(-1)) return;
+        #else
         uint cmdPtr = atomicAdd(opaqueDrawCount, cmdCnt);
+        #endif
 
         uint tCmdPtr = 0;
         if (renderTemporally) {
+            #ifdef VOXY_VULKAN
+            uint temporalPtr = reserveTemporalDraws(cmdCnt);
+            if (temporalPtr == uint(-1)) {
+                renderTemporally = false;
+            } else {
+                tCmdPtr = temporalPtr + TEMPORAL_OFFSET;
+            }
+            #else
             tCmdPtr = atomicAdd(temporalOpaqueDrawCount, cmdCnt) + TEMPORAL_OFFSET;
+            #endif
         }
 
         //TODO: make totalQuads also have temporal amount
@@ -110,7 +156,13 @@ void main() {
         //Translucency
         count = counts.x&0xFFFFu;
         if (count != 0) {
+            #ifdef VOXY_VULKAN
+            uint translucentIndex = reserveTranslucentDraw();
+            if (translucentIndex == uint(-1)) return;
+            uint tp = translucentIndex+TRANSLUCENT_WRITE_BASE;
+            #else
             uint tp = atomicAdd(translucentDrawCount, 1)+TRANSLUCENT_WRITE_BASE;
+            #endif
             translucentCommandData[tp] = drawId;
             uvec3 absRel = abs(relative);
             uint distToCamera = (absRel.x+absRel.y+absRel.z)<<detail;
