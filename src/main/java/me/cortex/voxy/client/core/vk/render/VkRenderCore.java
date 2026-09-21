@@ -24,8 +24,8 @@ import me.cortex.voxy.client.core.vk.VulkanBackend;
 import me.cortex.voxy.common.Logger;
 import me.cortex.voxy.common.thread.ServiceManager;
 import me.cortex.voxy.common.world.WorldEngine;
-import net.caffeinemc.mods.sodium.client.render.chunk.ChunkRenderMatrices;
-import net.caffeinemc.mods.sodium.client.util.FogParameters;
+import me.cortex.voxy.client.core.rendering.FogParameters;
+import me.cortex.voxy.client.core.rendering.RenderMatrices;
 import net.minecraft.client.Minecraft;
 
 import java.util.Arrays;
@@ -145,7 +145,7 @@ public class VkRenderCore {
     // bob delta as rawMCProj^-1 x base, which collapses to identity if base IS
     // rawMCProj, and viewRotationMatrix is rotation-only — both of which made
     // the LODs bounce relative to vanilla terrain while walking.
-    public void renderFrame(RenderTarget target, MinecraftVkHostAdapter adapter, ChunkRenderMatrices matrices,
+    public void renderFrame(RenderTarget target, MinecraftVkHostAdapter adapter, RenderMatrices matrices,
                             double camX, double camY, double camZ) {
         var frameCmd = adapter.frameCommandBuffer();
         if (frameCmd == null) {

@@ -3,7 +3,6 @@ package me.cortex.voxy.client;
 import me.cortex.voxy.client.compat.FlashbackCompat;
 import me.cortex.voxy.client.config.VoxyConfig;
 import me.cortex.voxy.client.core.RenderResourceReuse;
-import me.cortex.voxy.client.mixin.sodium.AccessorSodiumWorldRenderer;
 import me.cortex.voxy.common.Logger;
 import me.cortex.voxy.common.StorageConfigUtil;
 import me.cortex.voxy.common.config.ConfigBuildCtx;
@@ -12,7 +11,6 @@ import me.cortex.voxy.common.config.section.SectionStorageConfig;
 import me.cortex.voxy.commonImpl.ImportManager;
 import me.cortex.voxy.commonImpl.VoxyInstance;
 import me.cortex.voxy.commonImpl.WorldIdentifier;
-import net.caffeinemc.mods.sodium.client.render.SodiumWorldRenderer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.level.storage.LevelResource;
 
@@ -44,18 +42,7 @@ public class VoxyClientInstance extends VoxyInstance {
 
     @Override
     public void updateDedicatedThreads() {
-        int target = VoxyConfig.CONFIG.serviceThreads;
-        if (!VoxyConfig.CONFIG.dontUseSodiumBuilderThreads) {
-            var swr = SodiumWorldRenderer.instanceNullable();
-            if (swr != null) {
-                var rsm = ((AccessorSodiumWorldRenderer) swr).getRenderSectionManager();
-                if (rsm != null) {
-                    this.setNumThreads(Math.max(1, target - rsm.getBuilder().getTotalThreadCount()));
-                    return;
-                }
-            }
-        }
-        this.setNumThreads(target);
+        this.setNumThreads(VoxyConfig.CONFIG.serviceThreads);
     }
 
     @Override

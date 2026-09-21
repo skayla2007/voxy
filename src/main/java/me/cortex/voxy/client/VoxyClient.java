@@ -33,6 +33,11 @@ public class VoxyClient implements ClientModInitializer {
             return;
         }
 
+        Logger.error("Voxy standalone requires Minecraft 26.2's Vulkan graphics API; OpenGL is intentionally unsupported by this build");
+        return;
+
+        /* Legacy upstream OpenGL backend retained as source-only reference.
+
         Capabilities.init();//Ensure clinit is called
 
         if (Capabilities.INSTANCE.hasBrokenDepthSampler) {
@@ -61,6 +66,7 @@ public class VoxyClient implements ClientModInitializer {
             }
 
         }
+        */
     }
 
     //Vulkan init: MC is presenting through its own Vulkan backend, so Voxy adopts

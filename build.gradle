@@ -28,20 +28,6 @@ repositories {
         }
     }
 
-    exclusiveContent {
-        forRepository {
-            maven {
-                name = "caffeinemcRepository"
-                url = "https://maven.caffeinemc.net/releases"
-            }
-        }
-        filter {
-            includeGroup "net.caffeinemc"
-        }
-    }
-
-
-
     maven { url = "https://maven.shedaniel.me/" }
     maven { url = "https://maven.terraformersmc.com/releases/" }
 
@@ -85,44 +71,7 @@ def gitCommitHash = { ->
 
 def buildtime = {System.currentTimeSeconds()}
 
-def findSodiumVersion() {
-    var sodium_entry = (Map.Entry<String,String>)project.properties.find {it.key.contains("sodium_version")}
-    var props = sodium_entry.key.split("\\.");
-    var key = props.last();
-    props = props[0..props.size()-1];
-    String version_str;
-    boolean modrinth_version = key.endsWith("_modrinth");
-    if (modrinth_version) {
-        version_str = (sodium_entry.value=~/[^-]*-([^-]*-?[^-]*)-.*/)[0][1];
-    } else {
-        version_str = sodium_entry.value.split("\\+")[0];
-    }
-    return [props, modrinth_version, sodium_entry.value, version_str];
-}
-
 processResources {
-    String sodium_versions;
-    {
-        StringBuilder sodium_versions_builder = new StringBuilder("[");
-        var vers = [*project.properties.getOrDefault("sodium_extra_allows", "").split(" ")];
-        for (String ver : vers) {
-            if (!ver.isBlank()) {
-                sodium_versions_builder.append("\"=").append(ver).append("\", ");
-            }
-        }
-
-        var (props, _, _2, sodium_version) = findSodiumVersion();
-        var expectExact = props.contains("exact");
-
-        if (expectExact) {
-            sodium_versions_builder.append("\"=").append(sodium_version).append("\"");
-        } else {
-            sodium_version = sodium_version.split("-")[0]
-            sodium_versions_builder.append("\">=").append(sodium_version).append("- <=").append(sodium_version).append("\"")
-        }
-        sodium_versions_builder.append("]");
-        sodium_versions = sodium_versions_builder.toString();
-    }
     String allowed_mc_version;
     {
         allowed_mc_version = project.properties.minecraft_version.split("-")[0];
@@ -133,7 +82,7 @@ processResources {
     var hash = gitCommitHash()
     var version = project.version
 
-    def props = ["version": version, "commit": hash, "buildtime": time, "allowed_sodium_versions": sodium_versions, "allowed_mc_version": allowed_mc_version]
+    def props = ["version": version, "commit": hash, "buildtime": time, "allowed_mc_version": allowed_mc_version]
 
     for (var prop : props) {
         String value = prop.value;
@@ -150,30 +99,6 @@ processResources {
     }
 }
 
-
-var dummySodiumProviderGenerator = tasks.register("dummySodiumProviderGenerator", Jar) {
-    destinationDirectory.set(processIncludeJars.outputDirectory);
-    archiveFileName.set("dummyprovider.jar");
-    dependsOn(processIncludeJars)
-
-    var (_, _1, _2, sodium_version) = findSodiumVersion();
-    var props = ["sodium_version":sodium_version];
-
-    inputs.properties(props);
-    from("dummyprovider.fabric.mod.json") {
-        rename("dummyprovider.", "");
-        expand(props)
-    }
-}
-/*
-jar {
-    dependsOn(dummySodiumProviderGenerator)
-    from(dummySodiumProviderGenerator)
-}*/
-
-jar {
-    dependsOn(dummySodiumProviderGenerator)
-}
 
 loom {
     accessWidenerPath = file("src/main/resources/voxy.accesswidener")
@@ -238,34 +163,20 @@ dependencies {
     implementation "net.fabricmc:fabric-loader:${project.loader_version}"
 
 
-    runtimeOnlyMsk(fabricApi.module("fabric-api-base", project.fabric_api_version))
-    runtimeOnlyMsk(fabricApi.module("fabric-rendering-fluids-v1", project.fabric_api_version))
-    runtimeOnlyMsk(fabricApi.module("fabric-resource-loader-v0", project.fabric_api_version))
-    runtimeOnlyMsk(fabricApi.module("fabric-command-api-v2", project.fabric_api_version))
-
-    implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}";
-
-    {
-        var (_, mr, ver, _2) = findSodiumVersion()
-        if (mr) {
-            implementation "maven.modrinth:sodium:${ver}"
-        } else {
-            implementation "net.caffeinemc:sodium-fabric:${ver}"
-        }
-    }
+    // Ship Fabric API inside the standalone artifact so users only install
+    // Fabric Loader and this one jar.
+    include(implementation("net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"))
 
     //implementation("maven.modrinth:lithium:mc26.1.2-0.24.2-fabric")
 
     //modRuntimeOnlyMsk "drouarb:nvidium:0.4.1-beta4:1.21.6@jar"
     //compileOnly("drouarb:nvidium:0.4.1-beta4:1.21.6@jar")
 
-    smartDependency("modmenu_version", true)
-    smartDependency("lithium_version", true)
+    smartDependency("lithium_version")
     smartDependency("iris_version")
     smartDependency("chunky_version")
     smartDependency("vivecraft_version")
     smartDependency("flashback_version")
-    smartDependency("nvidium_version")
 
     //modCompileOnly("maven.modrinth:starlight:1.1.3+1.20.4")
 
@@ -283,6 +194,17 @@ dependencies {
     //compileOnly("maven.modrinth:vivecraft:26.1.1-1.3.7-b2-fabric")
 
     //compileOnly("maven.modrinth:flashback:VaqZB1DF")
+}
+
+sourceSets.main.java {
+    // Compatibility layers for the former Sodium/Nvidium runtime are deliberately
+    // not part of the standalone Vulkan artifact.
+    exclude "me/cortex/voxy/client/mixin/sodium/**"
+    exclude "me/cortex/voxy/client/mixin/nvidium/**"
+    exclude "me/cortex/voxy/client/mixin/iris/MixinLevelRenderer.java"
+    exclude "me/cortex/voxy/client/config/SodiumConfigBuilder.java"
+    exclude "me/cortex/voxy/client/config/VoxyConfigMenu.java"
+    exclude "me/cortex/voxy/client/config/ModMenuIntegration.java"
 }
 
 

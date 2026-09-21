@@ -4,10 +4,8 @@ import me.cortex.voxy.client.core.gl.GlBuffer;
 import me.cortex.voxy.client.core.rendering.Viewport;
 import me.cortex.voxy.client.core.rendering.util.AbstractUploadStream;
 import me.cortex.voxy.common.util.MemoryBuffer;
-import net.caffeinemc.mods.sodium.client.render.chunk.map.ChunkTrackerHolder;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.SectionPos;
-import net.minecraft.world.level.ChunkPos;
 import org.lwjgl.system.MemoryUtil;
 
 //This is a render subsystem, its very simple in what it does
@@ -78,17 +76,15 @@ public class ColumnStreamedBoundStore implements IBoundStore {
         }
 
         int count = 0;
-        var tracker = ChunkTrackerHolder.get(Minecraft.getInstance().level);
-        if (tracker != null) {
-            var iter = tracker.getReadyChunks().longIterator();
-            while (iter.hasNext()) {
-                long column = iter.nextLong();
-                //Emit column
-                for (int cy = mincy + 1; cy < maxcy; cy++) {
-                    if (count++ < capacity && writePtr != 0) {
-                        putPos(writePtr, SectionPos.asLong(ChunkPos.getX(column), cy, ChunkPos.getZ(column)));
-                        writePtr += 8;
-                    }
+        // Use vanilla's visibility list. This path only serves the legacy FREX
+        // compatibility renderer; the Vulkan backend uses StreamedBoundStore.
+        for (var section : Minecraft.getInstance().levelRenderer.visibleSections()) {
+            var origin = section.getRenderOrigin();
+            int cy = origin.getY() >> 4;
+            if (cy > mincy && cy < maxcy) {
+                if (count++ < capacity && writePtr != 0) {
+                    putPos(writePtr, SectionPos.asLong(origin.getX() >> 4, cy, origin.getZ() >> 4));
+                    writePtr += 8;
                 }
             }
         }

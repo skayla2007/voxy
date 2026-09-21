@@ -4,7 +4,6 @@ import me.cortex.voxy.client.core.RenderProperties;
 import me.cortex.voxy.client.core.gl.GlBuffer;
 import me.cortex.voxy.client.core.rendering.util.DepthFramebuffer;
 import me.cortex.voxy.client.core.rendering.util.HiZBuffer;
-import net.caffeinemc.mods.sodium.client.util.FogParameters;
 import net.minecraft.util.Mth;
 import org.joml.*;
 
