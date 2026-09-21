@@ -10,6 +10,7 @@ import org.lwjgl.vulkan.VkPhysicalDevice;
 import org.lwjgl.vulkan.VkPhysicalDeviceFeatures2;
 import org.lwjgl.vulkan.VkPhysicalDeviceMemoryProperties;
 import org.lwjgl.vulkan.VkPhysicalDeviceProperties;
+import org.lwjgl.vulkan.VkPhysicalDeviceProperties2;
 import org.lwjgl.vulkan.VkPhysicalDeviceSubgroupProperties;
 import org.lwjgl.vulkan.VkPhysicalDeviceVulkan12Features;
 import org.lwjgl.vulkan.VkQueue;
@@ -81,8 +82,8 @@ public final class VulkanContext {
     private static VkPhysicalDeviceSubgroupProperties querySubgroupProperties(VkPhysicalDevice pd) {
         try (MemoryStack stack = stackPush()) {
             var sg = VkPhysicalDeviceSubgroupProperties.calloc(stack).sType$Default();
-            var f2 = VkPhysicalDeviceFeatures2.calloc(stack).sType$Default().pNext(sg.address());
-            VK11.vkGetPhysicalDeviceFeatures2(pd, f2);
+            var properties2 = VkPhysicalDeviceProperties2.calloc(stack).sType$Default().pNext(sg.address());
+            VK11.vkGetPhysicalDeviceProperties2(pd, properties2);
             // Return a malloc'd copy so the caller can read it past the stack frame.
             var copy = VkPhysicalDeviceSubgroupProperties.malloc();
             copy.set(sg);

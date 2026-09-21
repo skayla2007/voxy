@@ -13,7 +13,7 @@ import org.lwjgl.vulkan.VkQueue;
 // from MC's VulkanDevice and are stable for the device lifetime. The per-frame
 // command buffer is resolved live from MC's persistent command encoder; the
 // world colour/depth attachments are passed straight to the render core each
-// frame from the Sodium hook's output target, so the adapter holds no per-frame
+// frame from vanilla's terrain output target, so the adapter holds no per-frame
 // state.
 public final class MinecraftVkHostAdapter implements IVkHost {
     private final VulkanDevice device;

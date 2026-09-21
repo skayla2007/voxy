@@ -138,7 +138,7 @@ public class VkRenderCore {
     //Renders one Voxy frame into MC's frame command buffer. Called from the
     // render hook right after MC's opaque terrain pass, on the render thread.
     //
-    //matrices are Sodium's per-frame ChunkRenderMatrices — the exact
+    //matrices are vanilla's per-frame terrain projection/model-view pair — the exact
     // projection+modelView MC/Sodium just drew the terrain with, INCLUDING
     // per-frame view bobbing/nausea/portal warps. They must be used instead of
     // the raw cameraRenderState matrices: computeProjectionMat extracts the
