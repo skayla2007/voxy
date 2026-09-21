@@ -165,7 +165,14 @@ public class VkRenderCore {
             }
 
             var viewport = this.viewportSelector.getViewport();
-            var voxyProjection = VoxyRenderSystem.computeProjectionMat(this.properties, matrices.projection());
+            // sectionRenderDistance is measured in top-level (32 chunk) units.
+            // The old convenience overload treated it as blocks and produced a
+            // 256-block far plane at the default value of 16, clipping nearly
+            // the entire LOD world. Match the normal Voxy pipeline's generous
+            // 3000-chunk projection; traversal still enforces the configured
+            // render distance independently.
+            var voxyProjection = VoxyRenderSystem.computeProjectionMat(
+                    this.properties, matrices.projection(), 3000.0f * 16.0f);
             var fog = crs.fogData == null ? null : new FogParameters(
                     crs.fogData.color.x, crs.fogData.color.y, crs.fogData.color.z, crs.fogData.color.w,
                     crs.fogData.environmentalStart, crs.fogData.environmentalEnd,

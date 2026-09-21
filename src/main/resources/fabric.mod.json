@@ -22,6 +22,9 @@
     ],
     "main": [
       "me.cortex.voxy.commonImpl.VoxyCommon"
+    ],
+    "modmenu": [
+      "me.cortex.voxy.client.config.ModMenuIntegration"
     ]
   },
   "mixins": [

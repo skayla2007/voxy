@@ -5,6 +5,7 @@ import me.cortex.voxy.client.core.IVoxyRenderSystemHolder;
 import me.cortex.voxy.client.core.rendering.RenderMatrices;
 import me.cortex.voxy.client.core.vk.MinecraftVkHost;
 import me.cortex.voxy.client.core.vk.MinecraftVkHostAdapter;
+import me.cortex.voxy.client.core.vk.VulkanFrameMatrices;
 import me.cortex.voxy.common.Logger;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.chunk.ChunkSectionLayerGroup;
@@ -45,8 +46,9 @@ public class MixinChunkSectionsToRender {
         }
 
         try {
+            var terrainProjection = VulkanFrameMatrices.getProjectionOr(camera.projectionMatrix);
             renderer.vkCore.renderFrame(group.outputTarget(), adapter,
-                    new RenderMatrices(camera.projectionMatrix, camera.viewRotationMatrix),
+                    new RenderMatrices(terrainProjection, camera.viewRotationMatrix),
                     camera.pos.x, camera.pos.y, camera.pos.z);
             if (!voxy$loggedFirstFrame) {
                 voxy$loggedFirstFrame = true;

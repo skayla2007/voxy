@@ -18,6 +18,7 @@
     "minecraft.MixinClientLevel",
     "minecraft.MixinDebugScreenEntryList",
     "minecraft.MixinFogRenderer",
+    "minecraft.MixinGameRenderer",
     "minecraft.MixinLevelExtractor",
     "minecraft.MixinLevelRenderer",
     "minecraft.MixinRenderSystem",

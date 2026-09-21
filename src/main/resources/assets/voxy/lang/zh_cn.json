@@ -1,0 +1,23 @@
+{
+  "voxy.config.title": "Voxy 设置",
+  "voxy.config.general": "常规",
+  "voxy.config.rendering": "渲染",
+  "voxy.config.general.enabled": "启用 Voxy",
+  "voxy.config.general.serviceThreads": "服务线程数",
+  "voxy.config.general.useSodiumBuilder": "使用 Sodium 构建线程",
+  "voxy.config.general.ingest": "区块 LOD 转换",
+  "voxy.config.general.rendering": "启用 Voxy 渲染",
+  "voxy.config.general.subDivisionSize": "LOD 细分像素面积",
+  "voxy.config.general.renderDistance": "LOD 渲染距离",
+  "voxy.config.general.environmental_fog": "环境雾与淡出",
+  "voxy.config.general.ssao_mode": "SSAO 模式",
+  "voxy.config.general.environmental_fog.fog_and_fade": "雾与淡出",
+  "voxy.config.general.environmental_fog.fog": "仅雾",
+  "voxy.config.general.environmental_fog.fade": "仅淡出",
+  "voxy.config.general.environmental_fog.off": "关闭",
+  "voxy.config.general.ssao_mode.auto": "自动",
+  "voxy.config.general.ssao_mode.basic": "基础",
+  "voxy.config.general.ssao_mode.better": "增强",
+  "voxy.config.general.ssao_mode.best": "最高",
+  "voxy.config.units.chunks": "%s 区块"
+}

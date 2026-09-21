@@ -37,5 +37,6 @@
   "voxy.config.general.ssao_mode.auto": "Auto",
   "voxy.config.general.ssao_mode.basic": "Basic",
   "voxy.config.general.ssao_mode.better": "Better",
-  "voxy.config.general.ssao_mode.best": "Best"
+  "voxy.config.general.ssao_mode.best": "Best",
+  "voxy.config.units.chunks": "%s chunks"
 }
