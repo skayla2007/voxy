@@ -32,9 +32,9 @@ import static org.lwjgl.vulkan.VK10.*;
 //           space by the fragment shader) writing stencil=0 where vanilla
 //           terrain exists. LOD terrain then renders with stencil==1 only.
 //
-//  COMPOSITE — alpha-blend Voxy's offscreen colour into MC's frame, emitting
-//           depth transformed back into vanilla's projection space, with the
-//           environmental fog ramp applied.
+//  COMPOSITE — alpha-blend Voxy's offscreen colour behind vanilla terrain,
+//           then fill only otherwise-empty depth pixels after vanilla's opaque
+//           pass. This keeps real blocks from depth-fighting with approximate LOD.
 public class VkCompositor {
     private final VkFrameCtx ctx;
     private final VkUploadStream uploadStream;
@@ -47,6 +47,8 @@ public class VkCompositor {
 
     private VkShaderPipeline depthSetup;
     private VkShaderPipeline composite;
+    private VkShaderPipeline realDepthMask;
+    private VkShaderPipeline depthResolve;
     private int setupDepthFormat = -1;
     private int compositeColorFormat = -1, compositeDepthFormat = -1;
 
@@ -91,6 +93,8 @@ public class VkCompositor {
     private void ensureCompositePipeline(int mcColorFormat, int mcDepthFormat) {
         if (this.composite != null && this.compositeColorFormat == mcColorFormat && this.compositeDepthFormat == mcDepthFormat) return;
         if (this.composite != null) this.composite.free();
+        if (this.realDepthMask != null) this.realDepthMask.free();
+        if (this.depthResolve != null) this.depthResolve.free();
         var d = new VkShaderPipeline.GfxDesc();
         d.name = "composite";
         d.vertGlsl = VkShaderSource.load("voxy:post/fullscreen2.vert", VkShaderSource.defs().props(this.properties).build());
@@ -102,12 +106,40 @@ public class VkCompositor {
         d.depthFormat = mcDepthFormat;
         d.stencilFormat = VK_FORMAT_UNDEFINED;
         d.depthTest = true;
-        d.depthWrite = true;
+        // LOD colour goes down before vanilla's opaque terrain. Its approximate
+        // depth must not reject real block fragments that are slightly farther
+        // than the LOD surface. Depth is resolved after vanilla instead.
+        d.depthWrite = false;
         d.depthCompare = VkCmd.closerEqual(this.properties);
         d.blend = true;
         d.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
         d.bindings = List.of(VkShaderPipeline.sampler(0), VkShaderPipeline.ubo(1), VkShaderPipeline.sampler(3));
         this.composite = new VkShaderPipeline(this.ctx, d);
+
+        var mask = new VkShaderPipeline.GfxDesc();
+        mask.name = "real-depth-mask";
+        mask.vertGlsl = VkShaderSource.load("voxy:post/fullscreen2.vert", VkShaderSource.defs().props(this.properties).build());
+        mask.fragGlsl = VkShaderSource.load("voxy:post/real_depth_mask.frag", VkShaderSource.defs().props(this.properties).build());
+        mask.colorFormat = VK_FORMAT_R8G8B8A8_UNORM;
+        mask.depthFormat = VK_FORMAT_UNDEFINED;
+        mask.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
+        mask.bindings = List.of(VkShaderPipeline.sampler(0));
+        this.realDepthMask = new VkShaderPipeline(this.ctx, mask);
+
+        var resolve = new VkShaderPipeline.GfxDesc();
+        resolve.name = "lod-depth-resolve";
+        resolve.vertGlsl = VkShaderSource.load("voxy:post/fullscreen2.vert", VkShaderSource.defs().props(this.properties).build());
+        resolve.fragGlsl = VkShaderSource.load("voxy:post/blit_texture_depth_cutout.frag", VkShaderSource.defs().props(this.properties)
+                .def("MASK_REAL_TERRAIN").build());
+        resolve.colorFormat = mcColorFormat;
+        resolve.depthFormat = mcDepthFormat;
+        resolve.depthTest = true;
+        resolve.depthWrite = true;
+        resolve.depthCompare = VkCmd.closerEqual(this.properties);
+        resolve.colorWrite = false;
+        resolve.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
+        resolve.bindings = List.of(VkShaderPipeline.sampler(0), VkShaderPipeline.ubo(1), VkShaderPipeline.sampler(4));
+        this.depthResolve = new VkShaderPipeline(this.ctx, resolve);
         this.compositeColorFormat = mcColorFormat;
         this.compositeDepthFormat = mcDepthFormat;
     }
@@ -288,9 +320,74 @@ public class VkCompositor {
         vkCmdEndRenderingKHR(cmd);
     }
 
+    /** Fill only untouched vanilla-depth pixels with LOD depth after opaque terrain. */
+    public void resolveDepthAfterVanilla(VkViewportRT rt) {
+        var viewport = rt.viewport;
+        if (viewport.fogParameters != null
+                && viewport.fogParameters.environmentalEnd() < VoxyRenderSystem.getVanillaRenderDistance()) return;
+        this.ensureCompositePipeline(VkFrameHost.vkFormat(rt.mcColour), VkFrameHost.vkFormat(rt.mcDepth));
+        var cmd = this.ctx.cmd();
+
+        // Snapshot whether vanilla wrote each pixel. Sampling and writing the
+        // same depth attachment in one pass is invalid in Vulkan, so reuse the
+        // now-dead offscreen colour image as a one-byte-per-channel mask.
+        viewport.colour.transition(VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT);
+        VkFrameHost.transitionMcImage(cmd, rt.mcDepth, true,
+                VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        try (MemoryStack stack = stackPush()) {
+            var colour = VkRenderingAttachmentInfoKHR.calloc(1, stack).sType$Default()
+                    .imageView(viewport.colour.view).imageLayout(VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
+                    .loadOp(VK_ATTACHMENT_LOAD_OP_DONT_CARE).storeOp(VK_ATTACHMENT_STORE_OP_STORE);
+            var info = VkRenderingInfoKHR.calloc(stack).sType$Default()
+                    .renderArea(VkRect2D.calloc(stack).extent(e -> e.width(rt.mcWidth).height(rt.mcHeight)))
+                    .layerCount(1).pColorAttachments(colour);
+            vkCmdBeginRenderingKHR(cmd, info);
+        }
+        this.realDepthMask.bind(cmd);
+        VkCmd.setViewportScissor(cmd, rt.mcWidth, rt.mcHeight);
+        try (var b = this.realDepthMask.binder()) {
+            b.sampler(0, VkFrameHost.vkView(rt.mcDepth), this.depthSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL).push(cmd);
+        }
+        vkCmdDraw(cmd, 4, 1, 0, 0);
+        vkCmdEndRenderingKHR(cmd);
+        VkFrameHost.transitionMcImage(cmd, rt.mcDepth, true,
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+        viewport.colour.transition(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
+
+        try (MemoryStack stack = stackPush()) {
+            var colour = VkRenderingAttachmentInfoKHR.calloc(1, stack).sType$Default()
+                    .imageView(VkFrameHost.vkView(rt.mcColour)).imageLayout(VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL)
+                    .loadOp(VK_ATTACHMENT_LOAD_OP_LOAD).storeOp(VK_ATTACHMENT_STORE_OP_STORE);
+            var depth = VkRenderingAttachmentInfoKHR.calloc(stack).sType$Default()
+                    .imageView(VkFrameHost.vkView(rt.mcDepth)).imageLayout(VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+                    .loadOp(VK_ATTACHMENT_LOAD_OP_LOAD).storeOp(VK_ATTACHMENT_STORE_OP_STORE);
+            var info = VkRenderingInfoKHR.calloc(stack).sType$Default()
+                    .renderArea(VkRect2D.calloc(stack).extent(e -> e.width(rt.mcWidth).height(rt.mcHeight)))
+                    .layerCount(1).pColorAttachments(colour).pDepthAttachment(depth);
+            vkCmdBeginRenderingKHR(cmd, info);
+        }
+        this.depthResolve.bind(cmd);
+        VkCmd.setViewportScissor(cmd, rt.mcWidth, rt.mcHeight);
+        try (var b = this.depthResolve.binder()) {
+            b.sampler(0, viewport.depthSampleView, this.depthSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+                    .ubo(1, this.compositeParams)
+                    .sampler(4, viewport.colour.view, this.colourSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
+                    .push(cmd);
+        }
+        vkCmdDraw(cmd, 4, 1, 0, 0);
+        vkCmdEndRenderingKHR(cmd);
+    }
+
     public void free() {
         if (this.depthSetup != null) this.depthSetup.free();
         if (this.composite != null) this.composite.free();
+        if (this.realDepthMask != null) this.realDepthMask.free();
+        if (this.depthResolve != null) this.depthResolve.free();
         //depthSampler/colourSampler come from VkImage2D.createSampler's
         // device-lifetime cache (shared across compositor/SSAO/terrain); never
         // destroy them per-object (double vkDestroySampler -> SIGSEGV on unload)

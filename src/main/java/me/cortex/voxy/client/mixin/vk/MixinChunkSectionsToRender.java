@@ -55,4 +55,16 @@ public class MixinChunkSectionsToRender {
             Logger.error("Voxy Vulkan frame failed", t);
         }
     }
+
+    @Inject(method = "renderGroup", at = @At("TAIL"))
+    private void voxy$finishVulkanFrame(ChunkSectionLayerGroup group, GpuSampler sampler, CallbackInfo ci) {
+        if (group != ChunkSectionLayerGroup.OPAQUE) return;
+        var renderer = IVoxyRenderSystemHolder.getNullable();
+        if (renderer == null || renderer.vkCore == null) return;
+        try {
+            renderer.vkCore.finishOpaqueTerrain();
+        } catch (Throwable t) {
+            Logger.error("Voxy Vulkan depth resolve failed", t);
+        }
+    }
 }

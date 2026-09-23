@@ -1,6 +1,9 @@
 #version 450 core
 
 layout(binding = 0) uniform sampler2D depthTex;
+#ifdef MASK_REAL_TERRAIN
+layout(binding = 4) uniform sampler2D realDepthMask;
+#endif
 #ifdef VOXY_VULKAN
 layout(binding = 1, std140) uniform CompositeParams {
     mat4 invProjMat;
@@ -43,6 +46,9 @@ float projDepth(vec3 pos) {
 }
 
 void main() {
+    #ifdef MASK_REAL_TERRAIN
+    if (texture(realDepthMask, UV.xy).r < 0.5) discard;
+    #endif
     float depth = texture(depthTex, UV.xy).r;
     if (depth == 0.0f || depth == 1.0f) {
         discard;

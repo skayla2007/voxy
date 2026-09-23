@@ -59,6 +59,7 @@ public class VkRenderCore {
     private final VkSSAO ssao;
     private final VkBoundRenderer boundRenderer;
     private final StreamedBoundStore visibleSectionStream;
+    private VkCompositor.VkViewportRT pendingDepthResolve;
     private boolean shutDown = false;
     private final RenderDistanceTracker renderDistanceTracker;
     private final ViewportSelector<VkViewport> viewportSelector;
@@ -135,8 +136,8 @@ public class VkRenderCore {
         return 2048L << 20;
     }
 
-    //Renders one Voxy frame into MC's frame command buffer. Called from the
-    // render hook right after MC's opaque terrain pass, on the render thread.
+    //Renders Voxy colour below vanilla opaque terrain. The depth resolve runs
+    // at the end of that terrain pass, while the same MC command buffer is live.
     //
     //matrices are vanilla's per-frame terrain projection/model-view pair — the exact
     // projection+modelView MC/Sodium just drew the terrain with, INCLUDING
@@ -147,6 +148,9 @@ public class VkRenderCore {
     // the LODs bounce relative to vanilla terrain while walking.
     public void renderFrame(RenderTarget target, MinecraftVkHostAdapter adapter, RenderMatrices matrices,
                             double camX, double camY, double camZ) {
+        if (this.pendingDepthResolve != null) {
+            throw new IllegalStateException("Previous Voxy opaque pass was not finished");
+        }
         var frameCmd = adapter.frameCommandBuffer();
         if (frameCmd == null) {
             Logger.warn("Voxy VK: no frame command buffer at hook point, skipping frame");
@@ -229,7 +233,23 @@ public class VkRenderCore {
             this.uploadStream.tick();
             this.renderDistanceTracker.setCenterAndProcess(viewport.cameraX, viewport.cameraZ);
             this.modelService.tick(900_000);
+            this.pendingDepthResolve = rt;
         } finally {
+            if (this.pendingDepthResolve == null) {
+                this.frameCtx.endFrame();
+                this.frameCtx.pollRetired();
+            }
+        }
+    }
+
+    /** Complete the opaque hook after vanilla has written real terrain depth. */
+    public void finishOpaqueTerrain() {
+        var rt = this.pendingDepthResolve;
+        if (rt == null) return;
+        try {
+            this.compositor.resolveDepthAfterVanilla(rt);
+        } finally {
+            this.pendingDepthResolve = null;
             this.frameCtx.endFrame();
             this.frameCtx.pollRetired();
         }
