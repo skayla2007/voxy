@@ -10,6 +10,7 @@ import me.cortex.voxy.client.core.vk.VkImage2D;
 import me.cortex.voxy.client.core.vk.VkShaderPipeline;
 import me.cortex.voxy.client.core.vk.VkShaderSource;
 import me.cortex.voxy.client.core.vk.VkUploadStream;
+import me.cortex.voxy.client.core.vk.VulkanDeviceFeatures;
 import me.cortex.voxy.common.Logger;
 import org.joml.Matrix4f;
 import org.lwjgl.system.MemoryStack;
@@ -131,7 +132,6 @@ public class VkTerrainRenderer {
                 0, List.of(VkShaderPipeline.ubo(0), VkShaderPipeline.ssbo(1), VkShaderPipeline.ssbo(2),
                         VkShaderPipeline.ssbo(3), VkShaderPipeline.ssbo(4), VkShaderPipeline.ssbo(5)));
 
-        //================= raster cull pipeline (depth-only, no writes) =================
         var cullDesc = new VkShaderPipeline.GfxDesc();
         cullDesc.name = "cullraster";
         cullDesc.vertGlsl = VkShaderSource.load("voxy:lod/gl46/cull/raster.vert", VkShaderSource.defs().props(properties).build());
@@ -143,6 +143,7 @@ public class VkTerrainRenderer {
         cullDesc.depthWrite = false;
         cullDesc.colorWrite = false;
         cullDesc.depthCompare = VkCmd.closerEqual(this.properties);
+        cullDesc.representativeFragmentTest = VulkanDeviceFeatures.hasRepresentativeFragmentTest();
         cullDesc.bindings = List.of(VkShaderPipeline.ubo(0), VkShaderPipeline.ssbo(1),
                 VkShaderPipeline.ssbo(2), VkShaderPipeline.ssbo(3));
         this.cullRaster = new VkShaderPipeline(ctx, cullDesc);
@@ -261,8 +262,8 @@ public class VkTerrainRenderer {
             this.ctx.computeToDrawBarrier();
         }
 
-        {//raster occlusion test into the visibility buffer (depth-tested box draw, no writes)
-            this.beginRendering(cmd, viewport, 0L, true);//depth-only
+        {//raster occlusion test into the visibility buffer
+            this.beginRendering(cmd, viewport, 0L, true);
             this.cullRaster.bind(cmd);
             VkCmd.setViewportScissor(cmd, viewport.width, viewport.height);
             try (var b = this.cullRaster.binder()) {
@@ -275,10 +276,6 @@ public class VkTerrainRenderer {
             vkCmdBindIndexBuffer(cmd, this.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT16);
             vkCmdDrawIndexedIndirect(cmd, viewport.drawCountCallBuffer.buffer, 6 * 4, 1, 20);
             vkCmdEndRenderingKHR(cmd);
-            //The raster-cull draw wrote visibilityData (SSBO) from the fragment
-            // shader; the consumer is the cmdgen compute. Scope to those stages
-            // instead of the previous fullBarrier (ALL_COMMANDS -> ALL_COMMANDS)
-            // which forced a full pipeline stall on every frame.
             this.ctx.barrier(VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                     VK_ACCESS_SHADER_WRITE_BIT,
                     VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
@@ -348,6 +345,7 @@ public class VkTerrainRenderer {
                 this.fbTemporalDraws = clampCount(MemoryUtil.memGetInt(ptr + 8), VkViewport.TEMPORAL_DRAW_COUNT);
             });
         }
+
     }
 
     private static int clampCount(int value, int cap) {

@@ -41,6 +41,16 @@ bool pushNodesInit(uint nodeCount) {
     // the real scratch-buffer capacity. High-resolution terrain-heavy views
     // can otherwise overflow this queue and lose/corrupt arbitrary LOD tiles.
     uint capacity = uint(nodeQueueSink.length());
+    #ifdef VOXY_VULKAN
+    uint index = atomicAdd(nodeQueueMetadata[queueIdx+1].w, nodeCount);
+    if (index > capacity || nodeCount > capacity-index) {
+        // A complete node tree has at most one queue entry per resident node;
+        // the Vulkan queue is sized to that ceiling. Keep a defensive fallback
+        // for corrupted graphs rather than writing outside the buffer.
+        nodePushIndex = -1;
+        return false;
+    }
+    #else
     uint index = atomicAdd(nodeQueueMetadata[queueIdx+1].w, 0);
     for (;;) {
         if (index > capacity || nodeCount > capacity-index) {
@@ -51,9 +61,21 @@ bool pushNodesInit(uint nodeCount) {
         if (previous == index) break;
         index = previous;
     }
-    //Increment first metadata value if it changes threash hold
+    #endif
+    // Increment the indirect dispatch group count only when this reservation
+    // crosses a workgroup boundary.
+    // The dispatch count is ceil(queue length / workgroup size). Reserve only
+    // the groups actually crossed by this child run. Using LOCAL_SIZE instead
+    // of nodeCount added a group for almost every parent node, launching many
+    // empty workgroups at dense LOD levels.
+    #ifdef VOXY_VULKAN
+    uint inc = ((index+nodeCount+LOCAL_SIZE-1)>>LOCAL_SIZE_BITS)
+             - ((index+LOCAL_SIZE-1)>>LOCAL_SIZE_BITS);
+    if (inc != 0) atomicAdd(nodeQueueMetadata[queueIdx+1].x, inc);
+    #else
     uint inc = ((index+LOCAL_SIZE)>>LOCAL_SIZE_BITS)-(index>>LOCAL_SIZE_BITS);
-    atomicAdd(nodeQueueMetadata[queueIdx+1].x, inc);//TODO: see if making this conditional on inc != 0 is faster
+    atomicAdd(nodeQueueMetadata[queueIdx+1].x, inc);
+    #endif
     nodePushIndex = index;
     return true;
 }

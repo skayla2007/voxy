@@ -16,12 +16,12 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-/** Runs Voxy after vanilla's opaque terrain pass on Minecraft's Vulkan command buffer. */
+/** Runs Voxy immediately before vanilla's opaque terrain pass. */
 @Mixin(ChunkSectionsToRender.class)
 public class MixinChunkSectionsToRender {
     @Unique private static boolean voxy$loggedFirstFrame;
 
-    @Inject(method = "renderGroup", at = @At("TAIL"))
+    @Inject(method = "renderGroup", at = @At("HEAD"))
     private void voxy$renderVulkanFrame(ChunkSectionLayerGroup group, GpuSampler sampler, CallbackInfo ci) {
         if (group != ChunkSectionLayerGroup.OPAQUE) return;
         if (!(MinecraftVkHost.get() instanceof MinecraftVkHostAdapter adapter)) return;
@@ -33,16 +33,13 @@ public class MixinChunkSectionsToRender {
         var camera = minecraft.gameRenderer.gameRenderState().levelRenderState.cameraRenderState;
         if (camera == null || !camera.initialized || camera.pos == null) return;
 
-        // Vanilla owns visibility now. Feed the same compiled sections into Voxy's
-        // depth-bound pass that the old Sodium collectors supplied.
+        // Render the LOD underneath vanilla terrain. In 26.2 newly compiled chunks
+        // fade in while already writing depth; rendering Voxy afterwards therefore
+        // punched a temporary chunk-shaped hole. Do not pre-cut visible chunk AABBs:
+        // the real opaque pass below naturally replaces the LOD as it fades in.
         var visible = renderer.visbleSectionStream;
         if (visible != null) {
             visible.reset();
-            for (var section : minecraft.levelRenderer.visibleSections()) {
-                var origin = section.getRenderOrigin();
-                visible.put(net.minecraft.core.SectionPos.asLong(
-                        origin.getX() >> 4, origin.getY() >> 4, origin.getZ() >> 4));
-            }
         }
 
         try {

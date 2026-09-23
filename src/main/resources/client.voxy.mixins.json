@@ -29,6 +29,7 @@
     "minecraft.util.MixinGlDebug",
     "minecraft.util.MixinGPUSelect",
     "vk.AccessorVulkanCommandEncoder",
+    "vk.MixinVulkanBackend",
     "vk.MixinChunkSectionsToRender",
     "vk.MixinVulkanDevice"
   ],

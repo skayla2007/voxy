@@ -3,6 +3,7 @@ package me.cortex.voxy.client.mixin.vk;
 import com.mojang.blaze3d.vulkan.VulkanDevice;
 import me.cortex.voxy.client.core.vk.MinecraftVkHost;
 import me.cortex.voxy.client.core.vk.MinecraftVkHostAdapter;
+import me.cortex.voxy.client.core.vk.VulkanDeviceFeatures;
 import me.cortex.voxy.common.Logger;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -35,5 +36,6 @@ public class MixinVulkanDevice {
     @Inject(method = "close", at = @At("HEAD"))
     private void voxy$clearHost(CallbackInfo ci) {
         MinecraftVkHost.clear();
+        VulkanDeviceFeatures.reset();
     }
 }

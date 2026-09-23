@@ -86,6 +86,7 @@ public final class VkShaderPipeline {
         public boolean stencilWriteAlways1 = false;//stencil ALWAYS -> write stencilWriteRef (depth setup pass)
         public int stencilWriteRef = 1;
         public int topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        public boolean representativeFragmentTest = false;
     }
 
     private static boolean isStripTopology(int topology) {
@@ -168,8 +169,17 @@ public final class VkShaderPipeline {
                 rendering.colorAttachmentCount(1).pColorAttachmentFormats(stack.ints(d.colorFormat));
             }
 
+            long pipelinePNext = rendering.address();
+            if (d.representativeFragmentTest) {
+                var representative = VkPipelineRepresentativeFragmentTestStateCreateInfoNV.calloc(stack)
+                        .sType$Default()
+                        .pNext(pipelinePNext)
+                        .representativeFragmentTestEnable(true);
+                pipelinePNext = representative.address();
+            }
+
             var gpci = VkGraphicsPipelineCreateInfo.calloc(1, stack).sType$Default()
-                    .pNext(rendering)
+                    .pNext(pipelinePNext)
                     .pStages(stages)
                     .pVertexInputState(vertexInput)
                     .pInputAssemblyState(inputAssembly)

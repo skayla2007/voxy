@@ -12,7 +12,6 @@ import org.lwjgl.vulkan.VkPhysicalDeviceMemoryProperties;
 import org.lwjgl.vulkan.VkPhysicalDeviceProperties;
 import org.lwjgl.vulkan.VkPhysicalDeviceProperties2;
 import org.lwjgl.vulkan.VkPhysicalDeviceSubgroupProperties;
-import org.lwjgl.vulkan.VkPhysicalDeviceVulkan12Features;
 import org.lwjgl.vulkan.VkQueue;
 
 import static me.cortex.voxy.client.core.vk.VkUtil.check;
@@ -46,7 +45,9 @@ public final class VulkanContext {
         this.device = host.device();
         this.queue = host.graphicsQueue();
         this.queueFamily = host.graphicsQueueFamily();
-        this.hasDrawIndirectCount = queryDrawIndirectCount(this.physicalDevice);
+        // A physical-device feature is legal to use only if it was also enabled
+        // during vkCreateDevice. MixinVulkanBackend records that exact decision.
+        this.hasDrawIndirectCount = VulkanDeviceFeatures.hasDrawIndirectCount();
         var subgroup = querySubgroupProperties(this.physicalDevice);
         this.subgroupProps = subgroup;
         this.subgroupArithmetic = subgroup != null && (subgroup.supportedOperations() & VK_SUBGROUP_FEATURE_ARITHMETIC_BIT) != 0;
@@ -68,15 +69,6 @@ public final class VulkanContext {
                 + " (drawIndirectCount=" + this.hasDrawIndirectCount
                 + ", subgroupArithmetic=" + this.subgroupArithmetic
                 + ", subgroupSize=" + this.subgroupSize + ")");
-    }
-
-    private static boolean queryDrawIndirectCount(VkPhysicalDevice pd) {
-        try (MemoryStack stack = stackPush()) {
-            var f12q = VkPhysicalDeviceVulkan12Features.calloc(stack).sType$Default();
-            var f2 = VkPhysicalDeviceFeatures2.calloc(stack).sType$Default().pNext(f12q);
-            VK11.vkGetPhysicalDeviceFeatures2(pd, f2);
-            return f12q.drawIndirectCount();
-        }
     }
 
     private static VkPhysicalDeviceSubgroupProperties querySubgroupProperties(VkPhysicalDevice pd) {

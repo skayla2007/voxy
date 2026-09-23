@@ -18,6 +18,11 @@ public final class ShadercCompiler {
         long options = shaderc_compile_options_initialize();
         try {
             shaderc_compile_options_set_target_env(options, shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_2);
+            // shaderc defaults to optimization level zero. These shaders do a
+            // large amount of integer unpacking and 64-bit address arithmetic
+            // per vertex; leaving that IR unoptimized makes dense LOD views
+            // vertex-bound by an order of magnitude compared with the GL driver.
+            shaderc_compile_options_set_optimization_level(options, shaderc_optimization_level_performance);
             shaderc_compile_options_set_auto_bind_uniforms(options, true);
             shaderc_compile_options_set_auto_map_locations(options, true);
             shaderc_compile_options_add_macro_definition(options, "VOXY_VULKAN", "1");
