@@ -9,6 +9,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.lang.invoke.VarHandle;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public final class WorldEngine {
@@ -28,11 +29,21 @@ public final class WorldEngine {
     private final Mapper mapper;
     private final ActiveSectionTracker sectionTracker;
     private ISectionChangeCallback dirtyCallback;
+    //Additional observers of section changes (e.g. the public LoD API), invoked after the primary dirty callback
+    private final CopyOnWriteArrayList<ISectionChangeCallback> changeListeners = new CopyOnWriteArrayList<>();
     private ISectionSaveCallback saveCallback;
     volatile boolean isLive = true;
 
     public void setDirtyCallback(ISectionChangeCallback callback) {
         this.dirtyCallback = callback;
+    }
+
+    public void addChangeListener(ISectionChangeCallback listener) {
+        this.changeListeners.addIfAbsent(listener);
+    }
+
+    public void removeChangeListener(ISectionChangeCallback listener) {
+        this.changeListeners.remove(listener);
     }
 
     public void setSaveCallback(ISectionSaveCallback callback) {
@@ -123,6 +134,9 @@ public final class WorldEngine {
         }
         if (this.dirtyCallback != null) {
             this.dirtyCallback.accept(section, changeState, neighborMsk);
+        }
+        for (var listener : this.changeListeners) {
+            listener.accept(section, changeState, neighborMsk);
         }
         if ((changeState&UPDATE_TYPE_DONT_SAVE)==0) {
             section.markDirty();

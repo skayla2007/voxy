@@ -1,5 +1,6 @@
 package me.cortex.voxy.client;
 
+import me.cortex.voxy.api.impl.LodApiImpl;
 import me.cortex.voxy.client.core.gl.Capabilities;
 import me.cortex.voxy.client.core.rendering.util.SharedIndexBuffer;
 import me.cortex.voxy.common.Logger;
@@ -8,6 +9,7 @@ import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Minecraft;
+import org.lwjgl.opengl.GL;
 
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -20,7 +22,40 @@ import java.util.function.Function;
 public class VoxyClient implements ClientModInitializer {
     private static final HashSet<String> FREX = new HashSet<>();
     private static FileLock EXCLUSIVE_LOCK;
+    public static final boolean SODIUM_LOADED = FabricLoader.getInstance().isModLoaded("sodium");
+
     public static void initVoxyClient() {
+        //Headless: keep ingesting, storing and serving LoD data through the public API, but never touch OpenGL.
+        // Used when another mod renders the world (requested through VoxyLodApi), when there is no OpenGL
+        // context at all (e.g. the Vulkan backend), or when sodium is missing (voxy's renderer is built on it).
+        boolean hasGl = hasOpenGlContext();
+        if (LodApiImpl.isHeadlessRequested() || !hasGl || !SODIUM_LOADED) {
+            LodApiImpl.setHeadless(true);
+            String reason = !hasGl ? "no OpenGL context" : (!SODIUM_LOADED ? "sodium not installed" : "requested by another mod");
+            Logger.info("Voxy running headless (" + reason + "), LoD data is served through the API only");
+            VoxyCommon.setInstanceFactory(VoxyClientInstance::new);
+            return;
+        }
+        initVoxyClientRenderer();
+    }
+
+    //True when voxy's own ingest hooks (driven by sodium's chunk tracking) may not be active, so vanilla chunk
+    // events have to feed the ingest service instead. In headless mode another mod renders the world, so sodium's
+    // section manager is not guaranteed to run even when sodium is installed.
+    public static boolean useVanillaIngest() {
+        return LodApiImpl.isHeadless();
+    }
+
+    private static boolean hasOpenGlContext() {
+        try {
+            GL.getCapabilities();
+            return true;
+        } catch (IllegalStateException | LinkageError e) {
+            return false;
+        }
+    }
+
+    private static void initVoxyClientRenderer() {
         Capabilities.init();//Ensure clinit is called
 
         if (Capabilities.INSTANCE.hasBrokenDepthSampler) {
@@ -65,6 +100,7 @@ public class VoxyClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         DebugEntries.init();
+        VanillaChunkIngest.init();
 
         ClientCommandRegistrationCallback.EVENT.register((dispatcher, registryAccess) -> {
             if (VoxyCommon.isAvailable()) {
