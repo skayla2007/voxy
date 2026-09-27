@@ -1,5 +1,6 @@
 package me.cortex.voxy.commonImpl;
 
+import me.cortex.voxy.api.impl.LodApiImpl;
 import me.cortex.voxy.common.Logger;
 import me.cortex.voxy.common.config.section.SectionStorage;
 import me.cortex.voxy.common.thread.ServiceManager;
@@ -223,6 +224,8 @@ public abstract class VoxyInstance {
 
     public void shutdown() {
         Logger.info("Shutting down voxy instance");
+        //The public LoD API holds a world reference, release it before waiting for worlds to become unused
+        LodApiImpl.onInstanceShutdown(this);
         this.isRunning = false;
         try {
             this.worldCleaner.join();

@@ -1,5 +1,6 @@
 package me.cortex.voxy.client.mixin.minecraft;
 
+import me.cortex.voxy.api.impl.LodApiImpl;
 import me.cortex.voxy.client.VoxyClientInstance;
 import me.cortex.voxy.client.config.VoxyConfig;
 import me.cortex.voxy.client.core.IVoxyRenderSystemHolder;
@@ -37,6 +38,8 @@ public abstract class MixinLevelRenderer implements IVoxyRenderSystemHolder {
 
     @Override
     public void voxy$shutdownRenderer() {
+        //Detach the public LoD view first so API consumers release their section handles before the world goes away
+        LodApiImpl.detach();
         if (this.renderer != null) {
             this.renderer.shutdown();
             this.renderer = null;
@@ -65,7 +68,8 @@ public abstract class MixinLevelRenderer implements IVoxyRenderSystemHolder {
             Logger.info("Not creating renderer due to disabled");
             return;
         }
-        if (!VoxyConfig.CONFIG.isRenderingEnabled()) {
+        boolean headless = LodApiImpl.isHeadless();
+        if (!headless && !VoxyConfig.CONFIG.isRenderingEnabled()) {
             Logger.info("Not creating renderer due to disabled rendering");
             return;
         }
@@ -84,7 +88,16 @@ public abstract class MixinLevelRenderer implements IVoxyRenderSystemHolder {
             Logger.warn("Not creating renderer due to null engine");
             return;
         }
+        if (headless) {
+            //No voxy renderer, the world is only exposed through the public LoD API
+            LodApiImpl.attach(world);
+            world.instanceIn.updateDedicatedThreads();
+            return;
+        }
         this.voxy$createEngineDirect(world);
+        if (this.renderer != null) {
+            LodApiImpl.attach(world);
+        }
     }
 
     @Unique

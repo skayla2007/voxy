@@ -1,9 +1,10 @@
 package me.cortex.voxy.client;
 
+import me.cortex.voxy.api.impl.LodApiImpl;
 import me.cortex.voxy.client.compat.FlashbackCompat;
+import me.cortex.voxy.client.compat.SodiumCompat;
 import me.cortex.voxy.client.config.VoxyConfig;
 import me.cortex.voxy.client.core.RenderResourceReuse;
-import me.cortex.voxy.client.mixin.sodium.AccessorSodiumWorldRenderer;
 import me.cortex.voxy.common.Logger;
 import me.cortex.voxy.common.StorageConfigUtil;
 import me.cortex.voxy.common.config.ConfigBuildCtx;
@@ -12,7 +13,6 @@ import me.cortex.voxy.common.config.section.SectionStorageConfig;
 import me.cortex.voxy.commonImpl.ImportManager;
 import me.cortex.voxy.commonImpl.VoxyInstance;
 import me.cortex.voxy.commonImpl.WorldIdentifier;
-import net.caffeinemc.mods.sodium.client.render.SodiumWorldRenderer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.level.storage.LevelResource;
 
@@ -45,14 +45,11 @@ public class VoxyClientInstance extends VoxyInstance {
     @Override
     public void updateDedicatedThreads() {
         int target = VoxyConfig.CONFIG.serviceThreads;
-        if (!VoxyConfig.CONFIG.dontUseSodiumBuilderThreads) {
-            var swr = SodiumWorldRenderer.instanceNullable();
-            if (swr != null) {
-                var rsm = ((AccessorSodiumWorldRenderer) swr).getRenderSectionManager();
-                if (rsm != null) {
-                    this.setNumThreads(Math.max(1, target - rsm.getBuilder().getTotalThreadCount()));
-                    return;
-                }
+        if (!VoxyConfig.CONFIG.dontUseSodiumBuilderThreads && VoxyClient.SODIUM_LOADED) {
+            int sodiumThreads = SodiumCompat.builderThreadCount();
+            if (sodiumThreads >= 0) {
+                this.setNumThreads(Math.max(1, target - sodiumThreads));
+                return;
             }
         }
         this.setNumThreads(target);
@@ -85,8 +82,10 @@ public class VoxyClientInstance extends VoxyInstance {
     @Override
     public void shutdown() {
         super.shutdown();
-        //Free the render resources cache since the entire instance is freed
-        RenderResourceReuse.clearResources();
+        //Free the render resources cache since the entire instance is freed (headless mode never allocates any)
+        if (!LodApiImpl.isHeadless()) {
+            RenderResourceReuse.clearResources();
+        }
     }
 
     private static class Config {

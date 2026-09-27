@@ -246,6 +246,19 @@ public class Mapper {
         return this.blockId2stateEntry.get(blockId).state;
     }
 
+    //Returns the biome registry key for a biome id, or null if the id is unknown
+    public String getBiomeKeyFromBiomeId(int biomeId) {
+        if (biomeId < 0 || biomeId >= this.biomeId2biomeEntry.size()) {
+            return null;
+        }
+        try {
+            var entry = this.biomeId2biomeEntry.get(biomeId);
+            return entry == null ? null : entry.biome;
+        } catch (IndexOutOfBoundsException e) {
+            return null;
+        }
+    }
+
     public int getIdForBlockState(BlockState state) {
         if (state.isAir()) {
             return 0;
