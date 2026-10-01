@@ -8,6 +8,9 @@ import me.cortex.voxy.common.util.MemoryBuffer;
 // and VkModelStore (pure Vulkan) so ModelFactory's CPU-side baking pipeline is
 // shared verbatim; only the atlas texture upload differs per API.
 public interface IModelStore {
+    default void exportModel(int id, MemoryBuffer data, net.minecraft.world.level.block.state.BlockState state) {}
+    default void exportColours(int first, MemoryBuffer data) {}
+    default void exportColourIndex(int model, int index) {}
     IDeviceBuffer modelBufferHandle();
 
     IDeviceBuffer colourBufferHandle();

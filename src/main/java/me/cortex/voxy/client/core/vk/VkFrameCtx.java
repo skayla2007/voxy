@@ -133,10 +133,24 @@ public final class VkFrameCtx {
             long fence = pFence.get(0);
             var submit = VkSubmitInfo.calloc(stack).sType$Default()
                     .pCommandBuffers(stack.pointers(cmd));
-            check(vkQueueSubmit(this.ctx.queue, submit, fence), "vkQueueSubmit(immediate)");
+            synchronized (me.cortex.voxy.api.VoxyLodApi.deviceHostLock()) {
+                check(vkQueueSubmit(this.ctx.queue, submit, fence), "vkQueueSubmit(immediate)");
+            }
             check(vkWaitForFences(this.ctx.device, fence, true, Long.MAX_VALUE), "vkWaitForFences(immediate)");
             vkDestroyFence(this.ctx.device, fence, null);
             vkFreeCommandBuffers(this.ctx.device, this.ctx.commandPool, cmd);
+        }
+    }
+
+    /** Complete external-renderer uploads before another command buffer reads the atlas. */
+    public void finishExternalUploads() {
+        boolean submitted = this.immediateCmd != null;
+        this.flushImmediate();
+        if (submitted) {
+            // The fence above covers all earlier submissions on the adopted queue.
+            this.pollRetired();
+            this.retiredCounter = this.frameCounter++;
+            this.runRetirement();
         }
     }
 
@@ -164,7 +178,9 @@ public final class VkFrameCtx {
     /** Hard sync: device idle, then retire EVERYTHING (shutdown / teardown). */
     public void waitIdleRetireAll() {
         this.flushImmediate();
-        vkDeviceWaitIdle(this.ctx.device);
+        synchronized (me.cortex.voxy.api.VoxyLodApi.deviceHostLock()) {
+            check(vkDeviceWaitIdle(this.ctx.device), "vkDeviceWaitIdle");
+        }
         while (!this.inFlight.isEmpty()) {
             vkDestroyEvent(this.ctx.device, this.inFlight.pop().event, null);
         }

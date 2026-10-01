@@ -29,6 +29,7 @@ import static org.lwjgl.vulkan.VK10.*;
 // HiZ-tested, emitting the render list + node requests. CPU-side TLN bookkeeping
 // and request readback are identical to the GL implementation.
 public class VkTraversal {
+    private long profileAt;
     public static final int MAX_REQUEST_QUEUE_SIZE = HierarchicalOcclusionTraverser.MAX_REQUEST_QUEUE_SIZE;
     // A 2K/4K terrain-heavy view can refine well beyond the original 200k
     // scratch entries. Match the resident-section ceiling on the Vulkan path.
@@ -238,6 +239,13 @@ public class VkTraversal {
         }
         //Traversal compute -> download copy (transfer) + requestBuffer fill.
         this.ctx.computeToTransferBarrier();
+
+        if (Boolean.getBoolean("caustica.voxy.profile") && System.nanoTime() - profileAt > 2_000_000_000L) {
+            profileAt = System.nanoTime();
+            this.downloadStream.download(viewport.indirectLookupBuffer, 0, 4, (pointer, bytes) ->
+                    Logger.info("Native Voxy visible meshes: " + MemoryUtil.memGetInt(pointer)
+                            + ", resident packed MiB: " + this.nodeManager.getUsedGeometryCapacity() / (1 << 20)));
+        }
 
         //Download + reset the request queue
         this.downloadStream.download(this.requestBuffer, this::forwardDownloadResult);

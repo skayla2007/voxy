@@ -23,6 +23,36 @@ import static org.lwjgl.vulkan.VK10.*;
 // the upload staging buffer with vkCmdCopyBufferToImage per mip; the batch is
 // bracketed by TRANSFER_DST <-> SHADER_READ_ONLY transitions.
 public class VkModelStore implements IModelStore {
+    private final me.cortex.voxy.api.LodModel[] exportedModels = new me.cortex.voxy.api.LodModel[1 << 16];
+    private final int[] exportedColours = new int[1 << 16];
+    public long exportRevision;
+
+    @Override
+    public void exportModel(int id, MemoryBuffer data, net.minecraft.world.level.block.state.BlockState state) {
+        long p = data.address;
+        exportedModels[id] = new me.cortex.voxy.api.LodModel(id,
+                MemoryUtil.memGetInt(p), MemoryUtil.memGetInt(p + 4), MemoryUtil.memGetInt(p + 8),
+                MemoryUtil.memGetInt(p + 12), MemoryUtil.memGetInt(p + 16), MemoryUtil.memGetInt(p + 20),
+                MemoryUtil.memGetInt(p + 24), MemoryUtil.memGetInt(p + 28), state);
+        exportRevision++;
+    }
+
+    @Override
+    public void exportColours(int first, MemoryBuffer data) {
+        MemoryUtil.memIntBuffer(data.address, Math.toIntExact(data.size / 4)).get(exportedColours, first, Math.toIntExact(data.size / 4));
+        exportRevision++;
+    }
+
+    @Override
+    public void exportColourIndex(int id, int index) {
+        var m = exportedModels[id];
+        if (m != null) exportedModels[id] = new me.cortex.voxy.api.LodModel(id, m.down(), m.up(), m.north(), m.south(), m.west(), m.east(), m.flags(), index, m.state());
+        exportRevision++;
+    }
+
+    public me.cortex.voxy.api.LodModel exportedModel(int id) { return exportedModels[id]; }
+    public int exportedColour(int id) { return exportedColours[id]; }
+    public long exportedAtlasView() { return atlas.view; }
     private final VkFrameCtx ctx;
     private final VkUploadStream uploadStream;
     final VkBuffer modelBuffer;
@@ -46,7 +76,7 @@ public class VkModelStore implements IModelStore {
         //Start life in shader-read so the first frame can bind it even with no uploads yet
         this.atlas.transition(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                 VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0,
-                VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
+                VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_ACCESS_SHADER_READ_BIT);
         ctx.flushImmediate();
 
         try (MemoryStack stack = stackPush()) {
@@ -78,7 +108,7 @@ public class VkModelStore implements IModelStore {
     @Override
     public void beginTextureUploads() {
         this.atlas.transition(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT,
+                VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_ACCESS_SHADER_READ_BIT,
                 VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
         this.inUploadBatch = true;
     }
@@ -121,7 +151,7 @@ public class VkModelStore implements IModelStore {
     public void endTextureUploads() {
         this.atlas.transition(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                 VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
-                VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_VERTEX_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
+                VK_PIPELINE_STAGE_ALL_COMMANDS_BIT | VK_PIPELINE_STAGE_VERTEX_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
         this.inUploadBatch = false;
     }
 

@@ -157,6 +157,9 @@ def smartDependency(String property, boolean runtime = false, String maven = nul
 
 
 dependencies {
+    testImplementation platform('org.junit:junit-bom:5.12.2')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     // To change the versions see the gradle.properties file
     minecraft "com.mojang:minecraft:${project.minecraft_version}"
     //mappings loom.officialMojangMappings()
@@ -196,6 +199,8 @@ dependencies {
 
     //compileOnly("maven.modrinth:flashback:VaqZB1DF")
 }
+
+tasks.named('test', Test) { useJUnitPlatform() }
 
 sourceSets.main.java {
     // Compatibility layers for the former Sodium/Nvidium runtime are deliberately

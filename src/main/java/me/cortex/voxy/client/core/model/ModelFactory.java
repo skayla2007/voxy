@@ -348,6 +348,7 @@ public class ModelFactory {
         private final boolean hasMips;
 
         public int modelId = -1;
+        public BlockState state;
 
         public int biomeUploadIndex = -1;
         public @Nullable MemoryBuffer biomeUpload;
@@ -358,8 +359,10 @@ public class ModelFactory {
         }
 
         public void upload(IModelStore store) {//Uploads and resets for reuse
+            store.exportModel(this.modelId, this.model, this.state);
             this.model.cpyTo(AbstractUploadStream.INSTANCE().upload(store.modelBufferHandle(), (long) this.modelId * MODEL_SIZE, MODEL_SIZE));
             if (this.biomeUploadIndex != -1) {
+                store.exportColours(this.biomeUploadIndex, this.biomeUpload);
                 this.biomeUpload.cpyTo(AbstractUploadStream.INSTANCE().upload(store.colourBufferHandle(), this.biomeUploadIndex * 4L, this.biomeUpload.size));
                 this.biomeUploadIndex = -1;
                 this.biomeUpload.free();
@@ -457,6 +460,7 @@ public class ModelFactory {
 
         ModelBakeResultUpload uploadResult = new ModelBakeResultUpload(!this.rasterUV);
         uploadResult.modelId = modelId;
+        uploadResult.state = blockState;
         long uploadPtr = uploadResult.model.address;
 
         //TODO: implement;
@@ -706,6 +710,11 @@ public class ModelFactory {
         }
 
         public void upload(IModelStore store) {
+            store.exportColours(0, this.biomeColourBuffer);
+            for (long offset = 0; offset < this.modelBiomeIndexPairs.size; offset += 8) {
+                long value = MemoryUtil.memGetLong(this.modelBiomeIndexPairs.address + offset);
+                store.exportColourIndex((int) value, (int) (value >>> 32));
+            }
             this.upload(store.modelBufferHandle(), store.colourBufferHandle());
         }
 

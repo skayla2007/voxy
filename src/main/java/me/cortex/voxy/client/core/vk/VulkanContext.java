@@ -125,7 +125,9 @@ public final class VulkanContext {
     }
 
     public void destroy() {
-        vkDeviceWaitIdle(this.device);
+        synchronized (me.cortex.voxy.api.VoxyLodApi.deviceHostLock()) {
+            vkDeviceWaitIdle(this.device);
+        }
         vkDestroyCommandPool(this.device, this.commandPool, null);
         if (this.subgroupProps != null) {
             this.subgroupProps.free();

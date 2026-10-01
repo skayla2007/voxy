@@ -42,6 +42,8 @@ import java.util.List;
 // MC's opaque terrain pass and the rest of its frame. No OpenGL is touched.
 public class VkRenderCore {
     private final WorldEngine worldIn;
+    private volatile me.cortex.voxy.api.LodSession externalSession;
+    private final ServiceManager services;
     private final VkFrameCtx frameCtx;
     private final VkUploadStream uploadStream;
     private final VkDownloadStream downloadStream;
@@ -50,21 +52,22 @@ public class VkRenderCore {
     private final VkModelStore modelStore;
     private final ModelBakerySubsystem modelService;
     private final RenderGenerationService renderGen;
-    private final VkSectionGeometryData geometryData;
-    private final AsyncNodeManager nodeManager;
-    private final VkNodeCleaner nodeCleaner;
-    private final VkTraversal traversal;
-    private final VkTerrainRenderer terrainRenderer;
-    private final VkCompositor compositor;
-    private final VkSSAO ssao;
-    private final VkBoundRenderer boundRenderer;
+    private VkSectionGeometryData geometryData;
+    private volatile AsyncNodeManager nodeManager;
+    private VkNodeCleaner nodeCleaner;
+    private VkTraversal traversal;
+    private VkTerrainRenderer terrainRenderer;
+    private VkCompositor compositor;
+    private VkSSAO ssao;
+    private VkBoundRenderer boundRenderer;
     private final StreamedBoundStore visibleSectionStream;
     private VkCompositor.VkViewportRT pendingDepthResolve;
     private boolean shutDown = false;
-    private final RenderDistanceTracker renderDistanceTracker;
-    private final ViewportSelector<VkViewport> viewportSelector;
+    private RenderDistanceTracker renderDistanceTracker;
+    private ViewportSelector<VkViewport> viewportSelector;
 
     public VkRenderCore(WorldEngine world, ServiceManager sm) {
+        this.services = sm;
         world.acquireRef();
         Logger.info("Creating Voxy pure-Vulkan render core");
         try {
@@ -91,6 +94,29 @@ public class VkRenderCore {
             this.modelService = new ModelBakerySubsystem(world.getMapper(), this.modelStore);
             this.renderGen = new RenderGenerationService(world, this.modelService, sm, false);
 
+            this.visibleSectionStream = new StreamedBoundStore(
+                    size -> new VkBuffer(this.frameCtx, size));
+            if (!me.cortex.voxy.api.VoxyLodApi.externalRendererActive()) ensureRasterResources();
+
+            world.setDirtyCallback((section, flags, neighbours) -> {
+                var nodes = this.nodeManager;
+                if (nodes != null) nodes.worldEvent(section, flags, neighbours);
+                var session = this.externalSession;
+                if (session != null) session.invalidate(section.key);
+            });
+            Arrays.stream(world.getMapper().getBiomeEntries()).forEach(this.modelService::addBiome);
+            world.getMapper().setBiomeCallback(this.modelService::addBiome);
+
+            this.frameCtx.flushImmediate();
+            Logger.info("Voxy Vulkan core ready; external renderer=" + (this.geometryData == null));
+        } catch (RuntimeException e) {
+            world.releaseRef();
+            throw e;
+        }
+    }
+
+    private void ensureRasterResources() {
+        if (geometryData != null) return;
             this.geometryData = new VkSectionGeometryData(this.frameCtx, 1 << 20, geometryCapacity());
             this.nodeManager = new AsyncNodeManager(1 << 21, this.geometryData, this.renderGen,
                     new VkNodeGpuOps(this.frameCtx, this.uploadStream));
@@ -105,14 +131,7 @@ public class VkRenderCore {
             //Depth-bound culling: Sodium's visibility mixins feed the store; the bound
             // renderer rasters visible-chunk AABBs into the depth-bound image so the
             // terrain shaders can discard LOD fragments vanilla terrain will cover.
-            this.visibleSectionStream = new StreamedBoundStore(
-                    size -> new VkBuffer(this.frameCtx, size));
             this.boundRenderer = new VkBoundRenderer(this.frameCtx, this.uploadStream, this.properties);
-
-            world.setDirtyCallback(this.nodeManager::worldEvent);
-            Arrays.stream(world.getMapper().getBiomeEntries()).forEach(this.modelService::addBiome);
-            world.getMapper().setBiomeCallback(this.modelService::addBiome);
-            this.nodeManager.start();
 
             this.viewportSelector = new ViewportSelector<>(() ->
                     new VkViewport(this.frameCtx, this.properties, this.geometryData.getMaxSectionCount()));
@@ -123,12 +142,7 @@ public class VkRenderCore {
                     this.nodeManager::addTopLevel, this.nodeManager::removeTopLevel);
             this.setRenderDistance(VoxyConfig.CONFIG.sectionRenderDistance);
 
-            this.frameCtx.flushImmediate();
-            Logger.info("Voxy pure-Vulkan render core created with " + this.geometryData.getMaxCapacity() + " geometry capacity");
-        } catch (RuntimeException e) {
-            world.releaseRef();
-            throw e;
-        }
+        this.nodeManager.start();
     }
 
     private static long geometryCapacity() {
@@ -148,6 +162,8 @@ public class VkRenderCore {
     // the LODs bounce relative to vanilla terrain while walking.
     public void renderFrame(RenderTarget target, MinecraftVkHostAdapter adapter, RenderMatrices matrices,
                             double camX, double camY, double camZ) {
+        if (me.cortex.voxy.api.VoxyLodApi.externalRendererActive()) return;
+        ensureRasterResources();
         if (this.pendingDepthResolve != null) {
             throw new IllegalStateException("Previous Voxy opaque pass was not finished");
         }
@@ -256,7 +272,21 @@ public class VkRenderCore {
     }
 
     public void setRenderDistance(float renderDistance) {
-        this.renderDistanceTracker.setRenderDistance((int) Math.ceil(renderDistance + 1));
+        if (this.renderDistanceTracker != null) this.renderDistanceTracker.setRenderDistance((int) Math.ceil(renderDistance + 1));
+    }
+
+    /** Advance Voxy CPU services without rasterizing into Minecraft's world target. Render thread only. */
+    public me.cortex.voxy.api.LodScene externalScene(double x, double y, double z, org.joml.Matrix4fc projectionView, int width, int height) {
+        if (shutDown) return null;
+        if (externalSession == null) externalSession = new me.cortex.voxy.api.LodSession(worldIn, modelService, services, modelStore);
+        this.frameCtx.flushImmediate();
+        this.modelService.tick(900_000);
+        this.uploadStream.tick();
+        this.frameCtx.finishExternalUploads();
+        var level = Minecraft.getInstance().level;
+        return externalSession.tick(x, y, z, level.getMinY(), level.getMaxY(),
+                VoxyConfig.CONFIG.sectionRenderDistance * 512.0,
+                new me.cortex.voxy.api.LodView(x, y, z, projectionView, width, height, VoxyConfig.CONFIG.subDivisionSize));
     }
 
     public void addDebugInfo(List<String> debug) {
@@ -265,8 +295,9 @@ public class VkRenderCore {
                 + (VkBuffer.getTotalSize() / 1_000_000) + "]");
         this.modelService.addDebugData(debug);
         this.renderGen.addDebugData(debug);
-        this.nodeManager.addDebug(debug);
-        this.ssao.addDebugInfo(debug);
+        if (this.externalSession != null) this.externalSession.addDebugInfo(debug);
+        if (this.nodeManager != null) this.nodeManager.addDebug(debug);
+        if (this.ssao != null) this.ssao.addDebugInfo(debug);
     }
 
     public void shutdown() {
@@ -275,6 +306,10 @@ public class VkRenderCore {
             return;
         }
         this.shutDown = true;
+        if (this.externalSession != null) {
+            this.externalSession.close();
+            this.externalSession = null;
+        }
         Logger.info("Shutting down Voxy pure-Vulkan render core");
 
         //CPU-only stop first: detach world callbacks and join the node/gen worker
@@ -286,7 +321,7 @@ public class VkRenderCore {
             this.worldIn.setDirtyCallback(null);
             this.worldIn.getMapper().setBiomeCallback(null);
             this.worldIn.getMapper().setStateCallback(null);
-            this.nodeManager.stop();
+            if (this.nodeManager != null) this.nodeManager.stop();
             this.renderGen.shutdown();
         } catch (Exception e) {
             Logger.error("Error stopping VK render core CPU services", e);
@@ -309,15 +344,15 @@ public class VkRenderCore {
                 // VkRenderCore must not free modelStore itself (double
                 // vkDestroySampler, observed NVIDIA SIGSEGV on world unload).
                 this.modelService.shutdown();
-                this.boundRenderer.free();
+                if (this.boundRenderer != null) this.boundRenderer.free();
                 this.visibleSectionStream.free();
-                this.traversal.free();
-                this.nodeCleaner.free();
-                this.geometryData.free();
-                this.terrainRenderer.free();
-                this.ssao.free();
-                this.compositor.free();
-                this.viewportSelector.free();
+                if (this.traversal != null) this.traversal.free();
+                if (this.nodeCleaner != null) this.nodeCleaner.free();
+                if (this.geometryData != null) this.geometryData.free();
+                if (this.terrainRenderer != null) this.terrainRenderer.free();
+                if (this.ssao != null) this.ssao.free();
+                if (this.compositor != null) this.compositor.free();
+                if (this.viewportSelector != null) this.viewportSelector.free();
                 this.downloadStream.flushWaitClear();
                 this.uploadStream.free();
                 this.downloadStream.free();
