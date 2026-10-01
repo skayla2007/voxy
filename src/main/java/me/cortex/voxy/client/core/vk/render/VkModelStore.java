@@ -12,6 +12,7 @@ import me.cortex.voxy.common.util.MemoryBuffer;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.system.MemoryUtil;
 import org.lwjgl.vulkan.VkBufferImageCopy;
+import org.lwjgl.vulkan.VkImageCopy;
 import org.lwjgl.vulkan.VkSamplerCreateInfo;
 
 import static me.cortex.voxy.client.core.vk.VkUtil.check;
@@ -57,7 +58,7 @@ public class VkModelStore implements IModelStore {
     private final VkUploadStream uploadStream;
     final VkBuffer modelBuffer;
     final VkBuffer modelColourBuffer;
-    final VkImage2D atlas;
+    VkImage2D atlas;
     public final long atlasSampler;
     private boolean inUploadBatch;
 
@@ -66,13 +67,7 @@ public class VkModelStore implements IModelStore {
         this.uploadStream = uploadStream;
         this.modelBuffer = new VkBuffer(ctx, ModelStore.MODEL_SIZE * (1L << 16)).zero();
         this.modelColourBuffer = new VkBuffer(ctx, 4L * (1 << 16)).zero();
-        this.atlas = new VkImage2D(ctx,
-                ModelFactory.MODEL_TEXTURE_SIZE * 3 * 256,
-                ModelFactory.MODEL_TEXTURE_SIZE * 2 * 256,
-                ModelFactory.LAYERS,
-                VK_FORMAT_R8G8B8A8_UNORM,
-                VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-                VK_IMAGE_ASPECT_COLOR_BIT, false);
+        this.atlas = createAtlas(Boolean.getBoolean("voxy.modelAtlas.fullCapacity") ? 256 : 8);
         //Start life in shader-read so the first frame can bind it even with no uploads yet
         this.atlas.transition(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                 VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0,
@@ -93,6 +88,48 @@ public class VkModelStore implements IModelStore {
             check(vkCreateSampler(ctx.vk().device, sci, null, pSampler), "vkCreateSampler(modelAtlas)");
             this.atlasSampler = pSampler.get(0);
         }
+    }
+
+    private VkImage2D createAtlas(int rows) {
+        return new VkImage2D(ctx,
+                ModelFactory.MODEL_TEXTURE_SIZE * 3 * 256,
+                ModelFactory.MODEL_TEXTURE_SIZE * 2 * rows,
+                ModelFactory.LAYERS,
+                VK_FORMAT_R8G8B8A8_UNORM,
+                VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+                VK_IMAGE_ASPECT_COLOR_BIT, false);
+    }
+
+    /** Preserve texel coordinates and every mip while increasing the allocated model rows. */
+    private void ensureAtlasCapacity(int modelId) {
+        if (modelId < 0 || modelId >= 65536) throw new IllegalArgumentException("Model ID outside atlas");
+        int tileHeight = ModelFactory.MODEL_TEXTURE_SIZE * 2;
+        int oldRows = atlas.height / tileHeight;
+        int rows = VkModelAtlasCapacity.rows(oldRows, modelId);
+        if (rows == oldRows) return;
+        VkImage2D old = atlas;
+        VkImage2D replacement = createAtlas(rows);
+        old.transition(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT);
+        replacement.transition(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0,
+                VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
+        try (MemoryStack stack = stackPush()) {
+            var regions = VkImageCopy.calloc(ModelFactory.LAYERS, stack);
+            for (int mip = 0; mip < ModelFactory.LAYERS; mip++) {
+                var region = regions.get(mip);
+                region.srcSubresource().aspectMask(VK_IMAGE_ASPECT_COLOR_BIT).mipLevel(mip).layerCount(1);
+                region.dstSubresource().aspectMask(VK_IMAGE_ASPECT_COLOR_BIT).mipLevel(mip).layerCount(1);
+                region.extent().width(old.width >> mip).height(old.height >> mip).depth(1);
+            }
+            vkCmdCopyImage(ctx.cmd(), old.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                    replacement.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, regions);
+        }
+        // Copies and later tile uploads do not overlap; the end-of-batch barrier makes both visible.
+        atlas = replacement;
+        exportRevision++;
+        old.free();
+        org.slf4j.LoggerFactory.getLogger("VoxyLOD").info("Voxy model atlas capacity={} models, extent={}x{}",
+                rows * 256, atlas.width, atlas.height);
     }
 
     @Override
@@ -116,6 +153,7 @@ public class VkModelStore implements IModelStore {
     @Override
     public void uploadModelTexture(int modelId, MemoryBuffer texture, boolean hasMips) {
         if (!this.inUploadBatch) throw new IllegalStateException("Texture upload outside batch");
+        ensureAtlasCapacity(modelId);
         final int TS = ModelFactory.MODEL_TEXTURE_SIZE;
         int X = (modelId & 0xFF) * TS * 3;
         int Y = ((modelId >> 8) & 0xFF) * TS * 2;

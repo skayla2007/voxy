@@ -74,11 +74,15 @@ uint getModelId() {
     return interData.x>>16;
 }
 
+vec2 faceUVScale() {
+    return vec2(16.0) / vec2(textureSize(blockModelAtlas, 0));
+}
+
 vec2 getBaseUV() {
     uint face = getFace();
     uint modelId = interData.x>>16;
-    vec2 modelUV = vec2(modelId&0xFFu, (modelId>>8)&0xFFu)*(1.0/(256.0));
-    return modelUV + (vec2(face>>1, face&1u) * (1.0/(vec2(3.0, 2.0)*256.0)));
+    vec2 modelTile = vec2(modelId&0xFFu, (modelId>>8)&0xFFu);
+    return (modelTile * vec2(3.0, 2.0) + vec2(face>>1, face&1u)) * faceUVScale();
 }
 
 
@@ -131,13 +135,13 @@ void main() {
     #endif
     #endif
 
-    vec2 uv2 = modf(uv, tile)*(1.0/(vec2(3.0,2.0)*256.0));
+    vec2 uv2 = modf(uv, tile)*faceUVScale();
     vec4 colour;
     vec2 texPos = uv2 + getBaseUV();
 //This is deprecated, TODO: remove the non mip code path
     //if (useMipmaps())
     {
-        vec2 uvSmol = uv*(1.0/(vec2(3.0,2.0)*256.0));
+        vec2 uvSmol = uv*faceUVScale();
         vec2 dx = dFdx(uvSmol);//vec2(lDx, dDx);
         vec2 dy = dFdy(uvSmol);//vec2(lDy, dDy);
         colour = textureGrad(blockModelAtlas, texPos, dx, dy);
