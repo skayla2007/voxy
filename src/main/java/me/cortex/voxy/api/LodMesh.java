@@ -9,6 +9,7 @@ public final class LodMesh {
     public final int level, x, y, z, aabb, children;
     private final long[] quads;
     private final int[] offsets;
+    private long validatedEpoch;
 
     public LodMesh(long key, long revision, int level, int x, int y, int z,
                    int aabb, int children, long[] quads, int[] offsets) {
@@ -26,6 +27,8 @@ public final class LodMesh {
 
     public LongBuffer quads() { return LongBuffer.wrap(quads).asReadOnlyBuffer(); }
     public int quadCount() { return quads.length; }
+    boolean validated(long epoch) { return validatedEpoch == epoch; }
+    void validatedFor(long epoch) { validatedEpoch = epoch; }
     public int[] offsets() { return offsets.clone(); }
     public int blockSize() { return 32 << level; }
     public int originX() { return x * blockSize(); }
