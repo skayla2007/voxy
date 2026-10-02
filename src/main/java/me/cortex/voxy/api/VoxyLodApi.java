@@ -6,7 +6,7 @@ import me.cortex.voxy.client.core.IVoxyRenderSystemHolder;
 public final class VoxyLodApi {
     /** Runtime field prevents consumers from inlining a different installed provider's API version. */
     public static final int VERSION;
-    static { VERSION = 4; }
+    static { VERSION = 5; }
     private static final Object DEVICE_HOST_LOCK = new Object();
     private static java.util.function.BooleanSupplier externalRenderer = () -> false;
     private VoxyLodApi() {}
